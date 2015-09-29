@@ -14,6 +14,9 @@ if sys.version_info >= (3,):
 if module_name in sys.modules:
     reload(sys.modules[module_name])
 
+if 'Golang Build.dev.mocks' in sys.modules:
+    reload(sys.modules['Golang Build.dev.mocks'])
+
 filepath = path.join(path.dirname(__file__), '..', 'golang_build.py')
 open(filepath, 'ab').close()
 # Wait for Sublime Text to reload the file

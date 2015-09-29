@@ -18,6 +18,7 @@ else:
 import sublime
 import sublime_plugin
 
+import shellenv
 import golangconfig
 import newterm
 import package_events
@@ -64,13 +65,15 @@ class GolangBuildCommand(sublime_plugin.WindowCommand):
         if working_dir is None:
             return
 
-        go_bin, env = golangconfig.subprocess_info(
+        go_bin, env = _get_config(
             'go',
             set(['GOPATH']),
             GO_ENV_VARS - set(['GOPATH']),
             view=self.window.active_view(),
             window=self.window,
         )
+        if (go_bin, env) == (None, None):
+            return
 
         if task == 'cross_compile':
             _task_cross_compile(
@@ -212,13 +215,15 @@ class GolangBuildGetCommand(sublime_plugin.WindowCommand):
         if working_dir is None:
             return
 
-        go_bin, env = golangconfig.subprocess_info(
+        go_bin, env = _get_config(
             'go',
             set(['GOPATH']),
             GO_ENV_VARS - set(['GOPATH']),
             view=self.window.active_view(),
             window=self.window,
         )
+        if (go_bin, env) == (None, None):
+            return
 
         def on_done(url):
             """
@@ -272,6 +277,13 @@ class GolangBuildTerminalCommand(sublime_plugin.WindowCommand):
             # Only set overrides that are not coming from the user's shell
             if source in relevant_sources:
                 env_overrides[var_name] = value
+
+        # Get the PATH from the shell environment and then prepend any custom
+        # value so the user's terminal searches all locations
+        value, source = golangconfig.setting_value('PATH', window=self.window)
+        if source in relevant_sources:
+            shell, env = shellenv.get_env()
+            env_overrides['PATH'] = value + os.pathsep + env.get('PATH', '')
 
         newterm.launch_terminal(working_dir, env=env_overrides)
 
@@ -341,6 +353,93 @@ def _determine_working_dir(window):
         return None
 
     return working_dir
+
+
+def _get_config(executable_name, required_vars, optional_vars=None, view=None, window=None):
+    """
+    :param executable_name:
+        A unicode string of the executable to locate, e.g. "go" or "gofmt"
+
+    :param required_vars:
+        A list of unicode strings of the environment variables that are
+        required, e.g. "GOPATH". Obtains values from setting_value().
+
+    :param optional_vars:
+        A list of unicode strings of the environment variables that are
+        optional, but should be pulled from setting_value() if available - e.g.
+        "GOOS", "GOARCH". Obtains values from setting_value().
+
+    :param view:
+        A sublime.View object to use in finding project-specific settings. This
+        should be passed whenever available.
+
+    :param window:
+        A sublime.Window object to use in finding project-specific settings.
+        This will only work for Sublime Text 3, and should only be passed if
+        no sublime.View object is available to pass via the view parameter.
+
+    :return:
+        A two-element tuple.
+
+        If there was an error finding the executable or required vars:
+
+         - [0] None
+         - [1] None
+
+        Otherwise:
+
+         - [0] A string of the path to the executable
+         - [1] A dict of environment variables for the executable
+    """
+
+    try:
+        return golangconfig.subprocess_info(
+            executable_name,
+            required_vars,
+            optional_vars,
+            view=view,
+            window=window
+        )
+
+    except (golangconfig.ExecutableError) as e:
+        error_message = '''
+            Golang Build
+
+            The %s executable could not be found. Please ensure it is
+            installed and available via your PATH.
+
+            Would you like to view documentation for setting a custom PATH?
+        '''
+
+        prompt = error_message % e.name
+
+        if sublime.ok_cancel_dialog(_format_message(prompt), 'Open Documentation'):
+            window.run_command(
+                'open_url',
+                {'url': 'https://go.googlesource.com/sublime-build/+/master/docs/configuration.md'}
+            )
+
+    except (golangconfig.EnvVarError) as e:
+        error_message = '''
+            Golang Build
+
+            The setting%s %s could not be found in your Sublime Text
+            settings or your shell environment.
+
+            Would you like to view the configuration documentation?
+        '''
+
+        plural = 's' if len(e.missing) > 1 else ''
+        setting_names = ', '.join(e.missing)
+        prompt = error_message % (plural, setting_names)
+
+        if sublime.ok_cancel_dialog(_format_message(prompt), 'Open Documentation'):
+            window.run_command(
+                'open_url',
+                {'url': 'https://go.googlesource.com/sublime-build/+/master/docs/configuration.md'}
+            )
+
+    return (None, None)
 
 
 class GolangProcess():

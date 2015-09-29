@@ -9,12 +9,15 @@ import time
 
 import sublime
 
+import shellenv
 import package_events
 
 if sys.version_info < (3,):
     from Queue import Queue
 else:
     from queue import Queue
+
+from .mocks import GolangBuildMock
 
 
 TEST_GOPATH = path.join(path.dirname(__file__), 'go_projects')
@@ -41,7 +44,7 @@ class GolangBuildTests(unittest.TestCase):
         result_queue = open_file(file_path, VIEW_SETTINGS, _run_build)
         result = wait_build(result_queue)
         self.assertEqual('success', result)
-        self.assertTrue(confirm_user('Did build succeed?'))
+        self.assertTrue(confirm_user('Did "go build" succeed?'))
 
     def test_clean(self):
         ensure_not_ui_thread()
@@ -54,7 +57,7 @@ class GolangBuildTests(unittest.TestCase):
         result_queue = open_file(file_path, VIEW_SETTINGS, _run_build)
         result = wait_build(result_queue)
         self.assertEqual('success', result)
-        self.assertTrue(confirm_user('Did clean succeed?'))
+        self.assertTrue(confirm_user('Did "go clean" succeed?'))
 
     def test_test(self):
         ensure_not_ui_thread()
@@ -67,7 +70,7 @@ class GolangBuildTests(unittest.TestCase):
         result_queue = open_file(file_path, VIEW_SETTINGS, _run_build)
         result = wait_build(result_queue)
         self.assertEqual('success', result)
-        self.assertTrue(confirm_user('Did tests succeed?'))
+        self.assertTrue(confirm_user('Did "go test" succeed?'))
 
     def test_install(self):
         ensure_not_ui_thread()
@@ -80,7 +83,7 @@ class GolangBuildTests(unittest.TestCase):
         result_queue = open_file(file_path, VIEW_SETTINGS, _run_build)
         result = wait_build(result_queue)
         self.assertEqual('success', result)
-        self.assertTrue(confirm_user('Did install succeed?'))
+        self.assertTrue(confirm_user('Did "go install" succeed?'))
 
     def test_cross_compile(self):
         ensure_not_ui_thread()
@@ -89,7 +92,7 @@ class GolangBuildTests(unittest.TestCase):
         begin_event = threading.Event()
 
         def _run_build(view, result_queue):
-            sublime.ok_cancel_dialog('Select linux/amd64 from quick panel', 'Ok')
+            notify_user('Select linux/amd64 from quick panel')
             begin_event.set()
             view.window().run_command('golang_build', {'task': 'cross_compile'})
 
@@ -97,7 +100,7 @@ class GolangBuildTests(unittest.TestCase):
         begin_event.wait()
         result = wait_build(result_queue, timeout=15)
         self.assertEqual('success', result)
-        self.assertTrue(confirm_user('Did cross-compile succeed?'))
+        self.assertTrue(confirm_user('Did the cross-compile succeed?'))
 
     def test_get(self):
         ensure_not_ui_thread()
@@ -107,7 +110,7 @@ class GolangBuildTests(unittest.TestCase):
 
         def _run_build(view, result_queue):
             sublime.set_clipboard('github.com/golang/example/hello')
-            sublime.ok_cancel_dialog('Paste from the clipboard into the input panel', 'Ok')
+            notify_user('Paste from the clipboard into the input panel')
             begin_event.set()
             view.window().run_command('golang_build_get')
 
@@ -115,7 +118,7 @@ class GolangBuildTests(unittest.TestCase):
         begin_event.wait()
         result = wait_build(result_queue)
         self.assertEqual('success', result)
-        self.assertTrue(confirm_user('Did get succeed?'))
+        self.assertTrue(confirm_user('Did "go get" succeed?'))
 
     def test_terminal(self):
         ensure_not_ui_thread()
@@ -126,7 +129,7 @@ class GolangBuildTests(unittest.TestCase):
             view.window().run_command('golang_build_terminal')
 
         open_file(file_path, VIEW_SETTINGS, _run_build)
-        self.assertTrue(confirm_user('Did terminal open?'))
+        self.assertTrue(confirm_user('Did a terminal open to Packages/Golang Build/dev/go_projects/src/good/?'))
 
     def test_build_bad(self):
         ensure_not_ui_thread()
@@ -139,7 +142,7 @@ class GolangBuildTests(unittest.TestCase):
         result_queue = open_file(file_path, VIEW_SETTINGS, _run_build)
         result = wait_build(result_queue)
         self.assertEqual('error', result)
-        self.assertTrue(confirm_user('Did build fail?'))
+        self.assertTrue(confirm_user('Did "go build" fail?'))
 
     def test_build_cancel(self):
         ensure_not_ui_thread()
@@ -157,7 +160,7 @@ class GolangBuildTests(unittest.TestCase):
         result_queue = open_file(file_path, VIEW_SETTINGS, _run_build)
         result = wait_build(result_queue)
         self.assertEqual('cancelled', result)
-        self.assertTrue(confirm_user('Was build cancelled?'))
+        self.assertTrue(confirm_user('Was "go build" successfully cancelled?'))
 
     def test_build_reopen(self):
         ensure_not_ui_thread()
@@ -178,14 +181,14 @@ class GolangBuildTests(unittest.TestCase):
         sublime.set_timeout(_hide_panel, 1)
 
         time.sleep(0.4)
-        self.assertTrue(confirm_user('Was build output hidden?'))
+        self.assertTrue(confirm_user('Was the build output hidden?'))
 
         def _reopen_panel():
             sublime.active_window().run_command('golang_build_reopen')
         sublime.set_timeout(_reopen_panel, 1)
 
         time.sleep(0.4)
-        self.assertTrue(confirm_user('Was build output reopened?'))
+        self.assertTrue(confirm_user('Was the build output reopened?'))
 
     def test_build_interrupt(self):
         ensure_not_ui_thread()
@@ -195,7 +198,7 @@ class GolangBuildTests(unittest.TestCase):
         second_begin_event = threading.Event()
 
         def _run_build(view, result_queue):
-            sublime.ok_cancel_dialog('Press the "Stop Running Build" button when prompted', 'Ok')
+            notify_user('Press the "Stop Running Build" button when prompted')
 
             begin_event.set()
             view.window().run_command('golang_build')
@@ -220,13 +223,73 @@ class GolangBuildTests(unittest.TestCase):
         self.assertEqual('success', result2)
         self.assertTrue(confirm_user('Was the first build cancelled and the second successful?'))
 
+    def test_build_go_missing(self):
+        ensure_not_ui_thread()
+
+        shell, _ = shellenv.get_env()
+        search_path = path.expanduser('~')
+        with GolangBuildMock(shell, {'PATH': search_path}):
+
+            file_path = path.join(TEST_GOPATH, 'src', 'good', 'hello.go')
+
+            def _run_build(view, result_queue):
+                notify_user('Press the "Open Documentation" button when prompted about go not being found in the PATH')
+
+                view.window().run_command('golang_build')
+
+            open_file(file_path, VIEW_SETTINGS, _run_build)
+            time.sleep(0.5)
+            self.assertTrue(confirm_user('Were you prompted that go could not be found in the PATH?'))
+            self.assertTrue(confirm_user('When you pressed "Open Documentation", was it opened in your browser?'))
+
+    def test_build_no_gopath(self):
+        ensure_not_ui_thread()
+
+        shell, env = shellenv.get_env()
+        if 'GOPATH' in env:
+            del env['GOPATH']
+        with GolangBuildMock(shell, env):
+
+            file_path = path.join(TEST_GOPATH, 'src', 'good', 'hello.go')
+
+            def _run_build(view, result_queue):
+                notify_user('Press the "Open Documentation" button when prompted about GOPATH not being set')
+
+                view.window().run_command('golang_build')
+
+            custom_view_settings = VIEW_SETTINGS.copy()
+            del custom_view_settings['GOPATH']
+            open_file(file_path, custom_view_settings, _run_build)
+            time.sleep(0.5)
+            self.assertTrue(confirm_user('Were you prompted that GOPATH was not set?'))
+            self.assertTrue(confirm_user('When you pressed "Open Documentation", was it opened in your browser?'))
+
 
 def ensure_not_ui_thread():
+    """
+    The tests won't function properly if they are run in the UI thread, so
+    this functions throws an exception if that is attempted
+    """
+
     if isinstance(threading.current_thread(), threading._MainThread):
         raise RuntimeError('Tests can not be run in the UI thread')
 
 
 def open_file(file_path, view_settings, callback):
+    """
+    Open a file in Sublime Text, sets settings on the view and then executes
+    the callback once the file is opened
+
+    :param file_path:
+        A unicode string of the path to the file to open
+
+    :param view_settings:
+        A dict of settings to set the "golang" key of the view's settings to
+
+    :param callback:
+        The callback to execute in the UI thread once the file is opened
+    """
+
     result_queue = Queue()
 
     def open_file_callback():
@@ -244,6 +307,25 @@ def open_file(file_path, view_settings, callback):
 
 
 def when_file_opened(window, file_path, view_settings, callback, result_queue):
+    """
+    Periodic polling callback used by open_file() to find the newly-opened file
+
+    :param window:
+        The sublime.Window to look for the view in
+
+    :param file_path:
+        The file path of the file that was opened
+
+    :param view_settings:
+        A dict of settings to set to the view's "golang" setting key
+
+    :param callback:
+        The callback to execute when the file is opened
+
+    :param result_queue:
+        A Queue() object the callback can use to communicate with the test
+    """
+
     view = window.active_view()
     if view and view.file_name() == file_path:
         view.settings().set('golang', view_settings)
@@ -254,7 +336,21 @@ def when_file_opened(window, file_path, view_settings, callback, result_queue):
 
 
 def wait_build(result_queue, timeout=5):
+    """
+    Uses the result queue to wait for a result from the open_file() callback
+
+    :param result_queue:
+        The Queue() to get the result from
+
+    :param timeout:
+        How long to wait before considering the test a failure
+
+    :return:
+        The value from the queue
+    """
+
     def _send_result(package_name, event_name, payload):
+        print(payload)
         result_queue.put(payload.result)
 
     try:
@@ -265,9 +361,33 @@ def wait_build(result_queue, timeout=5):
 
 
 def confirm_user(message):
+    """
+    Prompts the user to via a dialog to confirm a question
+
+    :param message:
+        A unicode string of the message to present to the user
+
+    :return:
+        A boolean - if the user clicked "Yes"
+    """
+
     queue = Queue()
+
     def _show_ok_cancel():
-        response = sublime.ok_cancel_dialog(message, 'Yes')
+        response = sublime.ok_cancel_dialog('Test Suite for Golang Build\n\n' + message, 'Yes')
         queue.put(response)
+
     sublime.set_timeout(_show_ok_cancel, 1)
     return queue.get()
+
+
+def notify_user(message):
+    """
+    Open a dialog for the user to inform them of a user interaction that is
+    part of the test suite
+
+    :param message:
+        A unicode string of the message to present to the user
+    """
+
+    sublime.ok_cancel_dialog('Test Suite for Golang Build\n\n' + message, 'Ok')
