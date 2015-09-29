@@ -29,5 +29,9 @@ The *Golang Build* package is installed by using
 
  - [Usage](docs/usage.md)
  - [Configuration](docs/configuration.md)
- - [License](LICENSE.md)
+ - [Contributing](CONTRIBUTING.md)
+ - [Contributors](CONTRIBUTORS)
+ - [Authors](AUTHORS)
+ - [License](LICENSE)
+ - [Patents](PATENTS)
  - [Development](docs/development.md)

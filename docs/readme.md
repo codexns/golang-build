@@ -19,6 +19,10 @@ The package consists of the following features:
 
  - [Usage](usage.md)
  - [Configuration](configuration.md)
- - [License](../LICENSE.md)
+ - [Contributing](../CONTRIBUTING.md)
+ - [Contributors](../CONTRIBUTORS)
+ - [Authors](../AUTHORS)
+ - [License](../LICENSE)
+ - [Patents](../PATENTS)
  - [Development](development.md)
 
