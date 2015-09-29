@@ -350,7 +350,6 @@ def wait_build(result_queue, timeout=5):
     """
 
     def _send_result(package_name, event_name, payload):
-        print(payload)
         result_queue.put(payload.result)
 
     try:
