@@ -11,9 +11,9 @@ import textwrap
 import collections
 
 if sys.version_info < (3,):
-    from Queue import Queue
+    import Queue as queue
 else:
-    from queue import Queue
+    import queue
 
 import sublime
 import sublime_plugin
@@ -44,11 +44,10 @@ GO_ENV_VARS = set([
 # basic get and set operations, the dict is threadsafe.
 _PROCS = {}
 
-# References to any existing GolangPanelPrinter() for a sublime.Window.id().
-# If the value is set, there is a printer still processing output. When
-# a process is complete, the panel printer will clear itself. For basic get and
-# set operations, the dict is threadsafe.
-_PRINTERS = {}
+# References to any existing GolangPanel() for a sublime.Window.id(). For
+# basic get and set operations, the dict is threadsafe.
+_PANELS = {}
+_PANEL_LOCK = threading.Lock()
 
 
 class GolangBuildCommand(sublime_plugin.WindowCommand):
@@ -513,57 +512,61 @@ class GolangProcess():
         )
         self.finished = False
 
-        self.output = Queue()
+        self.output = queue.Queue()
 
-        threading.Thread(
+        self._stdout_thread = threading.Thread(
             target=self._read_output,
             args=(
                 self.output,
                 self.proc.stdout.fileno(),
                 'stdout'
             )
-        ).start()
+        )
+        self._stdout_thread.start()
 
-        threading.Thread(
+        self._stderr_thread = threading.Thread(
             target=self._read_output,
             args=(
                 self.output,
                 self.proc.stderr.fileno(),
                 'stderr'
             )
-        ).start()
+        )
+        self._stderr_thread.start()
+
+        self._cleanup_thread = threading.Thread(target=self._cleanup)
+        self._cleanup_thread.start()
 
     def wait(self):
         """
         Blocks waiting for the subprocess to complete
         """
 
-        if self.proc:
-            self.proc.wait()
+        self._cleanup_thread.wait()
 
     def terminate(self):
         """
         Terminates the subprocess
         """
 
-        if self.proc:
-            self._cleanup_lock.acquire()
-            try:
-                self.proc.terminate()
-                self.finished = time.time()
-                self.result = 'cancelled'
-                self.output.put(('eof', None))
-                self.proc = None
-            finally:
-                self._cleanup_lock.release()
+        self._cleanup_lock.acquire()
+        try:
+            if not self.proc:
+                return
+            self.proc.terminate()
+            self.result = 'cancelled'
+            self.finished = time.time()
+            self.proc = None
+        finally:
+            self._cleanup_lock.release()
 
-    def _read_output(self, queue, fileno, output_type):
+    def _read_output(self, output_queue, fileno, output_type):
         """
         Handler to process output from stdout/stderr
 
         RUNS IN A THREAD
 
-        :param queue:
+        :param output_queue:
             The queue.Queue object to add the output to
 
         :param fileno:
@@ -575,17 +578,19 @@ class GolangProcess():
 
         while self.proc and self.proc.poll() is None:
             chunk = os.read(fileno, 32768)
-            if self.proc is None:
-                break
             if len(chunk) == 0:
                 break
-            queue.put((output_type, chunk.decode('utf-8')))
-        self._cleanup()
+            output_queue.put((output_type, chunk.decode('utf-8')))
 
     def _cleanup(self):
         """
         Cleans up the subprocess and marks the state of self appropriately
+
+        RUNS IN A THREAD
         """
+
+        self._stdout_thread.join()
+        self._stderr_thread.join()
 
         self._cleanup_lock.acquire()
         try:
@@ -595,93 +600,40 @@ class GolangProcess():
             self.proc.wait()
             self.result = 'success' if self.proc.returncode == 0 else 'error'
             self.finished = time.time()
-            self.output.put(('eof', None))
             self.proc = None
         finally:
             self._cleanup_lock.release()
+            self.output.put(('eof', None))
 
 
-class GolangPanelPrinter():
+class GolangProcessPrinter():
 
     """
-    Displays information about, and the output of, a Go process in a Sublime
-    Text output panel
+    Describes a Go process, the environment it was started in and its result
     """
 
     # The GolangProcess() object the printer is displaying output from
     proc = None
 
-    # The sublime.Window object of the output panel the printer is using
+    # The GolangPanel() object the information is written to
     panel = None
 
-    # Any existing GolangPanelPrinter() object this printer need to wait for
-    existing_printer = None
-
-    # A threading.Thread() object that is processing the Queue
-    thread = None
-
-    # A boolean if the printer is finished processing output
-    finished = None
-
-    def __init__(self, proc, panel, window_id, existing_printer):
+    def __init__(self, proc, panel):
         """
         :param proc:
             A GolangProcess() object
 
         :param panel:
-            A sublime.Window object from sublime.Window.get_output_panel()
-
-        :param window_id:
-            An integer of the window's id
-
-        :param existing_printer:
-            An existing GolangPanelPrinter() that is using the panel
+            A GolangPanel() object to write information to
         """
 
         self.proc = proc
         self.panel = panel
-        self.window_id = window_id
-        self.existing_printer = existing_printer
-        self.finished = False
-        self._configure_panel()
 
         self.thread = threading.Thread(
             target=self._run
         )
         self.thread.start()
-
-    def _configure_panel(self):
-        """
-        Sets various settings on the output panel
-        """
-
-        st_settings = sublime.load_settings('Preferences.sublime-settings')
-        panel_settings = self.panel.settings()
-        panel_settings.set('syntax', 'Packages/Golang Build/Golang Build Output.tmLanguage')
-        panel_settings.set('color_scheme', st_settings.get('color_scheme'))
-        panel_settings.set('draw_white_space', 'selection')
-        panel_settings.set('word_wrap', False)
-        panel_settings.set("auto_indent", False)
-        panel_settings.set('line_numbers', False)
-        panel_settings.set('gutter', False)
-        panel_settings.set('scroll_past_end', False)
-        if not self.existing_printer:
-            self._set_panel_finished(False, None)
-
-    def _set_panel_finished(self, finished, result):
-        """
-        Sets a setting on the output view inidicating if the build is finished.
-        This primarily exists to allow for testing of the the package.
-
-        :param finished:
-            A boolean - if the process has finished
-
-        :param result:
-            None or a unicode string of "success", "error" or "cancelled"
-        """
-
-        self.panel.settings().set('golang_build_finished', finished)
-        self.panel.settings().set('golang_build_result', result)
 
     def _run(self):
         """
@@ -690,90 +642,29 @@ class GolangPanelPrinter():
         RUNS IN A THREAD
         """
 
-        # If there is currently another printer working with the panel, wait
-        # until it completed printing its queue so the output is not interleaved
-        if self.existing_printer:
-            self.existing_printer.thread.join()
-        self._write_header()
+        self.panel.printer_lock.acquire()
 
-        while True:
-            message_type, message = self.proc.output.get()
+        try:
+            self._write_header()
 
-            if message_type == 'eof':
-                break
+            while True:
+                message_type, message = self.proc.output.get()
 
-            if message_type == 'stdout':
-                output = message
+                if message_type == 'eof':
+                    break
 
-            if message_type == 'stderr':
-                output = message
+                if message_type == 'stdout':
+                    output = message
 
-            self._queue_write(output)
+                if message_type == 'stderr':
+                    output = message
 
-        self._write_footer()
+                self.panel.write(output)
 
-        # Clear this panel printer from the registry
-        _set_printer(self.window_id, None)
+            self._write_footer()
 
-    def _queue_write(self, chars, content_separator=None, wait=False):
-        """
-        Runs a callback in the UI thread to actually print output to the output
-        panel
-
-        :param chars:
-            A unicode string to write to the panel
-
-        :param content_separator:
-            None, or a unicode string of character to ensure occurs right before
-            the chars, unless the panel is empty
-
-        :param wait:
-            If the function should not return until the write to the panel has
-            completed
-        """
-
-        event = None
-        if wait:
-            event = threading.Event()
-
-        sublime.set_timeout(lambda: self._do_write(chars, content_separator, event), 1)
-
-        if wait:
-            event.wait()
-
-    def _do_write(self, chars, content_separator, event):
-        """
-        Used with Sublime Text 2 since the "insert" command does not properly
-        handle newline characters
-
-        :param chars:
-            A unicode string to write to the panel
-
-        :param content_separator:
-            None, or a unicode string of character to ensure occurs right before
-            the chars, unless the panel is empty
-
-        :param event:
-            None, or a threading.Event() object that should be set once the
-            write completes
-        """
-
-        if content_separator is not None and self.panel.size() > 0:
-            end = self.panel.size()
-            start = end - len(content_separator)
-            if self.panel.substr(sublime.Region(start, end)) != content_separator:
-                chars = content_separator + chars
-
-        # In Sublime Text 2, the "insert" command does not handle newlines
-        if sys.version_info < (3,):
-            edit = self.panel.begin_edit('golang_panel_print', [])
-            self.panel.insert(edit, self.panel.size(), chars)
-            self.panel.end_edit(edit)
-        else:
-            self.panel.run_command('insert', {'characters': chars})
-
-        if event:
-            event.set()
+        finally:
+            self.panel.printer_lock.release()
 
     def _write_header(self):
         """
@@ -799,7 +690,7 @@ class GolangPanelPrinter():
         title += '> Command: %s\n' % subprocess.list2cmdline(self.proc.args)
         title += '> Output:\n'
 
-        self._queue_write(title, content_separator='\n\n')
+        self.panel.write(title, content_separator='\n\n')
 
     def _write_footer(self):
         """
@@ -812,8 +703,10 @@ class GolangPanelPrinter():
 
         output = '> Elapsed: %0.3fs\n> Result: %s' % (runtime, formatted_result)
 
-        self._queue_write(output, content_separator='\n', wait=True)
-        self.finished = True
+        event = threading.Event()
+        self.panel.write(output, content_separator='\n', event=event)
+        event.wait()
+
         package_events.notify(
             'Golang Build',
             'build_complete',
@@ -841,9 +734,114 @@ BuildCompleteEvent = collections.namedtuple(
 )
 
 
+class GolangPanel():
+
+    """
+    Holds a reference to an output panel used by the Golang Build package,
+    and provides synchronization features to ensure output is printed in proper
+    order
+    """
+
+    # A sublime.View object of the output panel being printed to
+    panel = None
+
+    # A queue.Queue() that holds all of the info to be written to the panel
+    queue = None
+
+    # A lock used to ensure only on GolangProcessPrinter() is using the panel
+    # at any given time
+    printer_lock = None
+
+    def __init__(self, window):
+        """
+        :param window:
+            The sublime.Window object the output panel is contained within
+        """
+
+        self.printer_lock = threading.Lock()
+        self.reset(window)
+
+    def reset(self, window):
+        """
+        Creates a new, fresh output panel and output Queue object
+
+        :param window:
+            The sublime.Window object the output panel is contained within
+        """
+
+        if not isinstance(threading.current_thread(), threading._MainThread):
+            raise RuntimeError('GolangPanel.reset() must be run in the UI thread')
+
+        self.queue = queue.Queue()
+        self.panel = window.get_output_panel('golang_build')
+
+        st_settings = sublime.load_settings('Preferences.sublime-settings')
+        panel_settings = self.panel.settings()
+        panel_settings.set('syntax', 'Packages/Golang Build/Golang Build Output.tmLanguage')
+        panel_settings.set('color_scheme', st_settings.get('color_scheme'))
+        panel_settings.set('draw_white_space', 'selection')
+        panel_settings.set('word_wrap', False)
+        panel_settings.set("auto_indent", False)
+        panel_settings.set('line_numbers', False)
+        panel_settings.set('gutter', False)
+        panel_settings.set('scroll_past_end', False)
+
+    def write(self, string, content_separator=None, event=None):
+        """
+        Queues data to be written to the output panel. Normally this will be
+        called from a thread other than the UI thread.
+
+        :param string:
+            A unicode string to write to the output panel
+
+        :param content_separator:
+            A unicode string to prefix to the string param if there is already
+            output in the output panel. Is only prefixed if the previous number
+            of characters are not equal to this string.
+
+        :param event:
+            An optional threading.Event() object to set once the data has been
+            written to the output panel
+        """
+
+        self.queue.put((string, content_separator, event))
+        sublime.set_timeout(self._process_queue, 1)
+
+    def _process_queue(self):
+        """
+        A callback that is run in the UI thread to actually perform writes to
+        the output panel. Reads from the queue until it is empty.
+        """
+
+        try:
+            while True:
+                chars, content_separator, event = self.queue.get(False)
+
+                if content_separator is not None and self.panel.size() > 0:
+                    end = self.panel.size()
+                    start = end - len(content_separator)
+                    if self.panel.substr(sublime.Region(start, end)) != content_separator:
+                        chars = content_separator + chars
+
+                # In Sublime Text 2, the "insert" command does not handle newlines
+                if sys.version_info < (3,):
+                    edit = self.panel.begin_edit('golang_panel_print', [])
+                    self.panel.insert(edit, self.panel.size(), chars)
+                    self.panel.end_edit(edit)
+
+                else:
+                    self.panel.run_command('insert', {'characters': chars})
+
+                if event:
+                    event.set()
+
+        except (queue.Empty):
+            pass
+
+
 def _run_process(task, window, args, cwd, env):
     """
-    Starts a GolangProcess() and creates a GolangPanelPrinter() for it
+    Starts a GolangProcess() and creates a GolangProcessPrinter() for it
 
     :param task:
         A unicode string of the build task name - one of "build", "test",
@@ -867,27 +865,16 @@ def _run_process(task, window, args, cwd, env):
         A GolangProcess() object
     """
 
-    window_id = window.id()
+    panel = _get_panel(window)
 
     proc = GolangProcess(args, cwd, env)
 
-    existing_printer = _get_printer(window_id)
+    # If there is no printer using the panel, reset it
+    if panel.printer_lock.acquire(False):
+        panel.reset(window)
+        panel.printer_lock.release()
 
-    # Calling sublime.Window.get_output_pane() clears the output panel, so we
-    # only call it if there is not a running build, otherwise the output of the
-    # cancelled build would be wiped from the screen, which makes it unclear
-    # what the result of the interrupted build was. Additionally, if the
-    # results of the previous build are still being displayed, we want to wait
-    # on that thread so the output of the two is not interleaved.
-    if existing_printer and not existing_printer.finished:
-        panel = existing_printer.panel
-
-    else:
-        panel = window.get_output_panel('golang_build')
-        existing_printer = None
-
-    printer = GolangPanelPrinter(proc, panel, window_id, existing_printer)
-    _set_printer(window_id, printer)
+    GolangProcessPrinter(proc, panel)
 
     window.run_command('show_panel', {'panel': 'output.golang_build'})
 
@@ -923,32 +910,24 @@ def _get_proc(window):
     return _PROCS.get(window.id())
 
 
-def _set_printer(window_id, printer):
+def _get_panel(window):
     """
-    Sets the GolangPanelPrinter() object associated with a sublime.Window
+    Returns the GolangPanel() object associated with a sublime.Window
 
-    :param window_id:
-        An integer of the window's id
-
-    :param printer:
-        A GolangPanelPrinter() object that is being run for the window
-    """
-
-    _PRINTERS[window_id] = printer
-
-
-def _get_printer(window_id):
-    """
-    Returns the GolangPanelPrinter() object associated with a sublime.Window
-
-    :param window_id:
-        An integer of the window's id
+    :param window:
+        A sublime.Window object
 
     :return:
-        None or a GolangPanelPrinter() object
+        A GolangPanel() object
     """
 
-    return _PRINTERS.get(window_id)
+    _PANEL_LOCK.acquire()
+    try:
+        if window.id() not in _PANELS:
+            _PANELS[window.id()] = GolangPanel(window)
+        return _PANELS.get(window.id())
+    finally:
+        _PANEL_LOCK.release()
 
 
 def _format_message(string):
