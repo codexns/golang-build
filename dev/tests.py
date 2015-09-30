@@ -6,6 +6,7 @@ import threading
 import unittest
 from os import path
 import time
+import re
 
 import sublime
 
@@ -291,13 +292,18 @@ def open_file(file_path, view_settings, callback):
     """
 
     result_queue = Queue()
+    file_param = file_path
+    if sys.platform == 'win32':
+        file_param = re.sub('^([a-zA-Z]):', '/\\1', file_param)
+        file_param = file_param.replace('\\', '/')
 
     def open_file_callback():
         window = sublime.active_window()
+
         window.run_command(
             'open_file',
             {
-                'file': file_path
+                'file': file_param
             }
         )
 
