@@ -27,14 +27,17 @@ The *Golang Build* package is installed by using
 
 ## Documentation
 
+### End User
+
  - [Usage](docs/usage.md)
  - [Configuration](docs/configuration.md)
  - [Changelog](changelog.md)
-
-
- - [Contributing](CONTRIBUTING.md)
- - [Contributors](CONTRIBUTORS)
- - [Authors](AUTHORS)
  - [License](LICENSE)
  - [Patents](PATENTS)
+
+### Contributor
+
+ - [Contributing](CONTRIBUTING.md)
  - [Development](docs/development.md)
+ - [Contributors](CONTRIBUTORS)
+ - [Authors](AUTHORS)

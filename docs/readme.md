@@ -17,15 +17,17 @@ The package consists of the following features:
 
 ## Documentation
 
+### End User
+
  - [Usage](usage.md)
  - [Configuration](configuration.md)
  - [Changelog](../changelog.md)
-
-
- - [Contributing](../CONTRIBUTING.md)
- - [Contributors](../CONTRIBUTORS)
- - [Authors](../AUTHORS)
  - [License](../LICENSE)
  - [Patents](../PATENTS)
- - [Development](development.md)
 
+### Contributor
+
+ - [Contributing](../CONTRIBUTING.md)
+ - [Development](development.md)
+ - [Contributors](../CONTRIBUTORS)
+ - [Authors](../AUTHORS)
