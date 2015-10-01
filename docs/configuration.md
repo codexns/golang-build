@@ -54,8 +54,10 @@ Settings are placed in a json structure. Common settings include:
    these are separated by `;`. OS X and Linux use `:` as a directory separator.
  - `GOPATH` - a string of the path to the root of your Go environment
 
-Other Go settings may, or may not, be supported by the packages using these
-settings. Examples include: `GOOS`, `GOARCH`, `GOROOT`.
+Other Go environment variables will be used if set. Examples include: `GOOS`,
+`GOARCH`, `GOROOT` and `GORACE`. The
+[go command documentation](https://golang.org/cmd/go/#hdr-Environment_variables)
+has a complete list.
 
 ```json
 {
