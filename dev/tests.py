@@ -31,6 +31,8 @@ VIEW_SETTINGS = {
     'GORACE': None
 }
 
+CROSS_COMPILE_OS = 'darwin' if sys.platform != 'darwin' else 'linux'
+
 
 class GolangBuildTests(unittest.TestCase):
 
@@ -93,7 +95,7 @@ class GolangBuildTests(unittest.TestCase):
         begin_event = threading.Event()
 
         def _run_build(view, result_queue):
-            notify_user('Select linux/amd64 from quick panel')
+            notify_user('Select %s/amd64 from quick panel' % CROSS_COMPILE_OS)
             begin_event.set()
             view.window().run_command('golang_build', {'task': 'cross_compile'})
 
@@ -212,7 +214,7 @@ class GolangBuildTests(unittest.TestCase):
 
         # We perform a cross-compile so the user has time to interrupt the build
         custom_view_settings = VIEW_SETTINGS.copy()
-        custom_view_settings['GOOS'] = 'linux'
+        custom_view_settings['GOOS'] = CROSS_COMPILE_OS
         custom_view_settings['GOARCH'] = 'amd64'
 
         result_queue = open_file(file_path, custom_view_settings, _run_build)
