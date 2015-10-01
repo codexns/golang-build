@@ -21,6 +21,7 @@ The package consists of the following features:
  - [Configuration](configuration.md)
  - [Changelog](../changelog.md)
 
+
  - [Contributing](../CONTRIBUTING.md)
  - [Contributors](../CONTRIBUTORS)
  - [Authors](../AUTHORS)
