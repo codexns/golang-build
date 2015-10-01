@@ -1,26 +1,13 @@
-# golangconfig Development
+# *Golang Build* Development
 
 ## Setup
 
  - Install [Package Coverage](https://packagecontrol.io/packages/Package%20Coverage)
    to run tests
- - Install the [shellenv](https://github.com/codexns/shellenv) dependency by
-   executing `git clone --branch 1.4.1 https://github.com/codexns/shellenv`
-   inside of your `Packages/` folder
- - Install the [newterm](https://github.com/codexns/newterm) dependency by
-   executing `git clone --branch 1.0.0 https://github.com/codexns/newterm`
-   inside of your `Packages/` folder
- - Install the [package_events](https://github.com/codexns/package_events)
-   dependency by executing
-   `git clone --branch 1.0.1 https://github.com/codexns/package_events` inside
-   of your `Packages/` folder
- - Install the golangconfig dependency by executing
-   `git clone https://go.googlesource.com/sublime-config golangconfig`
-   inside of your `Packages/` folder
  - Install this package by executing
    `git clone https://go.googlesource.com/sublime-build "Golang Build"`
    inside of your `Packages/` folder
- - Use the Package Control command "Install Local Dependency" to install
+ - Use the Package Control command "Satisfy Dependencies" to install
    `shellenv`, `newterm`, `package_events` and then `golangconfig` so they are
    available to the Python plugin environment
 

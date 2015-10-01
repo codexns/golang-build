@@ -1,7 +1,7 @@
 # Golang Build
 
 *Golang Build* is a Sublime Text package for compiling Go projects. It provides
-integration between a Sublime Text environment and the command line `go` tool.
+integration between Sublime Text and the command line `go` tool.
 
 The package consists of the following features:
 
@@ -19,6 +19,8 @@ The package consists of the following features:
 
  - [Usage](usage.md)
  - [Configuration](configuration.md)
+ - [Changelog](../changelog.md)
+
  - [Contributing](../CONTRIBUTING.md)
  - [Contributors](../CONTRIBUTORS)
  - [Authors](../AUTHORS)
