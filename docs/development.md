@@ -7,9 +7,9 @@
  - Install this package by executing
    `git clone https://go.googlesource.com/sublime-build "Golang Build"`
    inside of your `Packages/` folder
- - Use the Package Control command "Satisfy Dependencies" to install
-   `shellenv`, `newterm`, `package_events` and then `golangconfig` so they are
-   available to the Python plugin environment
+ - Use the Package Control command "Satisfy Dependencies" to install the
+   `shellenv`, `newterm`, `package_events` and `golangconfig` dependencies
+   and then restart Sublime Text
 
 ## General Notes
 
